@@ -5,7 +5,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 drop function if exists public.handle_new_user();
 drop function if exists public.book_appointment(uuid, uuid, date, time, time);
 drop function if exists public.get_available_slots(date);
-drop function if exists public.is_admin(uuid);
+drop function if exists public.is_admin(uuid) cascade;
 
 drop table if exists public.bookings cascade;
 drop table if exists public.beds cascade;
