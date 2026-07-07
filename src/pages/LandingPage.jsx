@@ -63,8 +63,10 @@ export default function LandingPage() {
   }, []);
 
   const getBookLink = () => {
-    if (!user) return '/register';
-    return profile?.role === 'admin' ? '/admin' : '/dashboard';
+    if (!user) return '/login';
+    if (profile?.role === 'admin') return '/admin';
+    if (profile?.role === 'therapist') return '/doctor';
+    return '/dashboard';
   };
 
   return (

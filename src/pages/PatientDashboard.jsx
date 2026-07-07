@@ -18,6 +18,57 @@ export default function PatientDashboard() {
   const [selectedSlot, setSelectedSlot] = useState(null); // { start_time, end_time, available_slots }
   const [therapists, setTherapists] = useState([]);
   const [selectedTherapist, setSelectedTherapist] = useState(null);
+  const [clinicHours, setClinicHours] = useState({ start: '09:00:00', end: '17:00:00' });
+  
+  // Custom Month Picker States
+  const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
+  
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June", 
+    "July", "August", "September", "October", "November", "December"
+  ];
+  
+  const getDaysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
+  const getFirstDayOfMonth = (y, m) => new Date(y, m, 1).getDay();
+  
+  const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+  const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
+  const blanks = Array(firstDay).fill(null);
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const calendarCells = [...blanks, ...days];
+  
+  const handlePrevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear(currentYear - 1);
+    } else {
+      setCurrentMonth(currentMonth - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear(currentYear + 1);
+    } else {
+      setCurrentMonth(currentMonth + 1);
+    }
+  };
+
+  const isDateSelectable = (day) => {
+    if (!day) return false;
+    const date = new Date(currentYear, currentMonth, day);
+    if (date.getDay() === 0) return false; // Disable Sunday
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return date >= today; // Disable past dates
+  };
+
+  const handleSelectDay = (day) => {
+    const dateStr = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+    setSelectedDate(dateStr);
+  };
   
   // Bookings list states
   const [myBookings, setMyBookings] = useState([]);
@@ -54,6 +105,30 @@ export default function PatientDashboard() {
       }
     }
     loadTherapists();
+  }, []);
+
+  // Fetch Clinic Settings
+  useEffect(() => {
+    async function loadClinicSettings() {
+      try {
+        const { data, error } = await supabase.from('clinic_settings').select('*');
+        if (error) throw error;
+        const settingsObj = {};
+        if (data) {
+          data.forEach(s => {
+            settingsObj[s.key] = s.value;
+          });
+        }
+        setClinicHours({
+          start: settingsObj['clinic_start_time'] || '09:00:00',
+          end: settingsObj['clinic_end_time'] || '17:00:00'
+        });
+      } catch (err) {
+        console.error('Error fetching settings:', err.message);
+        setClinicHours({ start: '09:00:00', end: '17:00:00' });
+      }
+    }
+    loadClinicSettings();
   }, []);
 
   // Fetch patient bookings
@@ -290,27 +365,93 @@ export default function PatientDashboard() {
 
             {/* STEP 1: DATE SELECTION */}
             {step === 1 && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 text-sm font-semibold">
+              <div className="space-y-6 animate-scale-in">
+                <div className="flex items-center gap-2 text-slate-600 text-sm font-semibold">
                   <CalendarIcon className="h-4.5 w-4.5 text-medical-500" />
                   <span>Choose Date for Appointment</span>
                 </div>
-                <input 
-                  type="date"
-                  min={new Date().toISOString().split('T')[0]}
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-4 focus:border-medical-500 focus:outline-none dark:text-white transition-colors"
-                />
+
+                {selectedDate && (
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 flex justify-between items-center text-sm font-bold text-slate-700">
+                    <span>Selected Date:</span>
+                    <span className="text-medical-500 bg-medical-50/70 border border-medical-100 px-3 py-1 rounded-xl">{selectedDate}</span>
+                  </div>
+                )}
+
+                {/* Custom Month Picker Calendar */}
+                <div className="border border-slate-100 rounded-3xl p-5 bg-slate-50/30 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="font-extrabold text-sm text-slate-800">
+                      {monthNames[currentMonth]} {currentYear}
+                    </span>
+                    <div className="flex gap-2">
+                      <button 
+                        type="button"
+                        onClick={handlePrevMonth}
+                        className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={handleNextMonth}
+                        className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-7 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    <span>Sun</span>
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-2">
+                    {calendarCells.map((day, idx) => {
+                      if (day === null) {
+                        return <div key={`blank-${idx}`} className="h-9"></div>;
+                      }
+
+                      const dateStr = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+                      const isSelected = selectedDate === dateStr;
+                      const selectable = isDateSelectable(day);
+
+                      return (
+                        <button
+                          key={`day-${day}`}
+                          type="button"
+                          disabled={!selectable}
+                          onClick={() => handleSelectDay(day)}
+                          className={`h-9 w-full rounded-xl flex items-center justify-center text-xs font-bold transition-all ${
+                            isSelected
+                              ? 'bg-medical-500 text-white shadow-md shadow-medical-500/20 scale-105'
+                              : selectable
+                                ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/50'
+                                : 'bg-transparent text-slate-350 cursor-not-allowed opacity-40'
+                          }`}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <p className="text-xs text-slate-400">
-                  Appointments can be booked from Monday to Saturday, between 9:00 AM and 5:00 PM.
+                  Appointments can be booked from Monday to Saturday, between {formatTime(clinicHours.start)} and {formatTime(clinicHours.end)}.
                 </p>
               </div>
             )}
 
             {/* STEP 2: TIME SLOT SELECTOR */}
             {step === 2 && (
-              <div className="space-y-4">
+              <div className="space-y-4 animate-scale-in">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 text-sm font-semibold">
                     <Clock className="h-4.5 w-4.5 text-medical-500" />
@@ -357,7 +498,7 @@ export default function PatientDashboard() {
 
             {/* STEP 3: THERAPIST SELECTOR */}
             {step === 3 && (
-              <div className="space-y-4">
+              <div className="space-y-4 animate-scale-in">
                 <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 text-sm font-semibold">
                   <UserIcon className="h-4.5 w-4.5 text-medical-500" />
                   <span>Choose Your Therapist</span>
@@ -399,7 +540,7 @@ export default function PatientDashboard() {
 
             {/* STEP 4: CONFIRMATION SUMMARY */}
             {step === 4 && (
-              <div className="space-y-6">
+              <div className="space-y-6 animate-scale-in">
                 <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 text-sm font-semibold">
                   <CheckCircle2 className="h-4.5 w-4.5 text-medical-500" />
                   <span>Verify Booking Details</span>

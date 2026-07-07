@@ -8,20 +8,11 @@ export const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => {
-    return localStorage.getItem('theme') === 'dark' || 
-      (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  });
 
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [darkMode]);
+    document.documentElement.classList.remove('dark');
+    localStorage.setItem('theme', 'light');
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -88,20 +79,12 @@ export const Navbar = () => {
               Contact
             </button>
 
-            <div className="h-4 w-px bg-slate-200 dark:bg-slate-800"></div>
 
-            {/* Dark Mode Toggle */}
-            <button 
-              onClick={() => setDarkMode(!darkMode)}
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
-            >
-              {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </button>
 
             {/* Auth Buttons */}
             {user ? (
               <div className="flex items-center gap-4">
-                {profile?.role === 'admin' ? (
+                {profile?.role === 'admin' && (
                   <Link 
                     to="/admin" 
                     className="flex items-center gap-1.5 rounded-xl bg-medical-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-medical-500/20 hover:bg-medical-600 hover:shadow-lg transition-all"
@@ -109,7 +92,17 @@ export const Navbar = () => {
                     <LayoutDashboard className="h-4 w-4" />
                     Admin Panel
                   </Link>
-                ) : (
+                )}
+                {profile?.role === 'therapist' && (
+                  <Link 
+                    to="/doctor" 
+                    className="flex items-center gap-1.5 rounded-xl bg-medical-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-medical-500/20 hover:bg-medical-600 hover:shadow-lg transition-all"
+                  >
+                    <LayoutDashboard className="h-4 w-4" />
+                    Doctor Portal
+                  </Link>
+                )}
+                {profile?.role === 'patient' && (
                   <Link 
                     to="/dashboard" 
                     className="flex items-center gap-1.5 rounded-xl bg-medical-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-medical-500/20 hover:bg-medical-600 hover:shadow-lg transition-all"
@@ -133,7 +126,7 @@ export const Navbar = () => {
                   Sign In
                 </Link>
                 <Link 
-                  to="/register" 
+                  to="/login" 
                   className="rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-2 text-sm font-semibold hover:bg-slate-800 dark:hover:bg-slate-100 transition-all"
                 >
                   Book Appointment
@@ -144,12 +137,7 @@ export const Navbar = () => {
 
           {/* Mobile menu button */}
           <div className="flex items-center gap-2 md:hidden">
-            <button 
-              onClick={() => setDarkMode(!darkMode)}
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-            >
-              {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </button>
+
             <button
               onClick={() => setIsOpen(!isOpen)}
               className="rounded-xl p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
@@ -193,7 +181,7 @@ export const Navbar = () => {
 
             {user ? (
               <div className="space-y-2">
-                {profile?.role === 'admin' ? (
+                {profile?.role === 'admin' && (
                   <Link 
                     to="/admin" 
                     onClick={() => setIsOpen(false)}
@@ -202,7 +190,18 @@ export const Navbar = () => {
                     <LayoutDashboard className="h-5 w-5" />
                     Admin Panel
                   </Link>
-                ) : (
+                )}
+                {profile?.role === 'therapist' && (
+                  <Link 
+                    to="/doctor" 
+                    onClick={() => setIsOpen(false)}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-medical-500 py-3 text-base font-semibold text-white shadow-md shadow-medical-500/20"
+                  >
+                    <LayoutDashboard className="h-5 w-5" />
+                    Doctor Portal
+                  </Link>
+                )}
+                {profile?.role === 'patient' && (
                   <Link 
                     to="/dashboard" 
                     onClick={() => setIsOpen(false)}
@@ -231,7 +230,7 @@ export const Navbar = () => {
                   Sign In
                 </Link>
                 <Link 
-                  to="/register" 
+                  to="/login" 
                   onClick={() => setIsOpen(false)}
                   className="flex justify-center items-center rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-2.5 text-base font-medium shadow-md"
                 >

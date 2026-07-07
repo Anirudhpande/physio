@@ -5,7 +5,7 @@ import { Layout } from '../components/Layout';
 import { 
   Activity, Shield, Clock, Users, Award, Calendar, ToggleLeft, 
   ToggleRight, Settings, Plus, Edit2, Trash2, XCircle, CheckCircle2, 
-  AlertCircle, RefreshCw, BarChart2, CalendarDays, Bed, UserSquare,
+  AlertCircle, RefreshCw, BarChart2, CalendarDays, Bed, UserSquare, UserCheck,
   Search, Sliders, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { 
@@ -17,13 +17,15 @@ export default function AdminDashboard() {
   const { user, profile } = useAuth();
   
   // Navigation Tabs
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'calendar', 'beds', 'therapists', 'patients'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'calendar', 'beds', 'therapists', 'patients', 'settings'
   
   // Core Database States
   const [bookings, setBookings] = useState([]);
   const [beds, setBeds] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [patients, setPatients] = useState([]);
+  const [clinicHours, setClinicHours] = useState({ start: '09:00:00', end: '17:00:00' });
+  const [settingsForm, setSettingsForm] = useState({ start: '09:00:00', end: '17:00:00' });
   
   // Loading & Feedback
   const [loading, setLoading] = useState(true);
@@ -35,9 +37,16 @@ export default function AdminDashboard() {
   const [calendarDate, setCalendarDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
+  const [adminYear, setAdminYear] = useState(() => new Date().getFullYear());
+  const [adminMonth, setAdminMonth] = useState(() => new Date().getMonth());
   const [therapistFilter, setTherapistFilter] = useState('all');
   const [patientFilter, setPatientFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Attendance States
+  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [loadingAttendance, setLoadingAttendance] = useState(false);
 
   // Modal / Form States
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
@@ -50,6 +59,9 @@ export default function AdminDashboard() {
   const [therapistForm, setTherapistForm] = useState({
     name: '', specialization: '', experience: '', profile_image: '', shift_start: '09:00:00', shift_end: '17:00:00'
   });
+
+  const [showAddBedModal, setShowAddBedModal] = useState(false);
+  const [newBedNumber, setNewBedNumber] = useState('');
 
   // Load all data
   const loadData = async () => {
@@ -94,8 +106,25 @@ export default function AdminDashboard() {
       if (patErr) throw patErr;
       setPatients(patData || []);
 
+      // 5. Fetch Clinic Settings
+      const { data: settingsData, error: settingsErr } = await supabase
+        .from('clinic_settings')
+        .select('*');
+      if (settingsErr) throw settingsErr;
+      const settingsObj = {};
+      if (settingsData) {
+        settingsData.forEach(s => {
+          settingsObj[s.key] = s.value;
+        });
+      }
+      setClinicHours({
+        start: settingsObj['clinic_start_time'] || '09:00:00',
+        end: settingsObj['clinic_end_time'] || '17:00:00'
+      });
+
     } catch (err) {
       console.error('Admin loadData error:', err.message);
+      setClinicHours({ start: '09:00:00', end: '17:00:00' });
       setErrorBanner('Supabase database credentials are empty or SQL schema needs to be run. Displaying high-fidelity simulated local workspace data.');
       
       // Load Rich Fallback Mock Data
@@ -178,6 +207,7 @@ export default function AdminDashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => loadData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'beds' }, () => loadData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'therapists' }, () => loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clinic_settings' }, () => loadData())
       .subscribe();
 
     return () => {
@@ -188,6 +218,54 @@ export default function AdminDashboard() {
   const showToast = (type, text) => {
     setToast({ type, text });
     setTimeout(() => setToast(null), 5000);
+  };
+
+  const fetchAttendance = async (date) => {
+    try {
+      setLoadingAttendance(true);
+      const { data, error } = await supabase
+        .from('therapist_attendance')
+        .select('*')
+        .eq('attendance_date', date);
+      if (error) throw error;
+      setAttendanceRecords(data || []);
+    } catch (err) {
+      console.error("Error loading attendance:", err);
+      setAttendanceRecords([]);
+    } finally {
+      setLoadingAttendance(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAttendance(attendanceDate);
+  }, [attendanceDate]);
+
+  const handleMarkAttendance = async (therapistId, status) => {
+    try {
+      const existing = attendanceRecords.find(r => r.therapist_id === therapistId);
+      if (existing) {
+        const { error } = await supabase
+          .from('therapist_attendance')
+          .update({ status })
+          .eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('therapist_attendance')
+          .insert({
+            therapist_id: therapistId,
+            attendance_date: attendanceDate,
+            status
+          });
+        if (error) throw error;
+      }
+      showToast('success', 'Attendance marked successfully!');
+      fetchAttendance(attendanceDate);
+    } catch (err) {
+      console.error("Error marking attendance:", err);
+      showToast('error', 'Failed to mark attendance.');
+    }
   };
 
   // 1. Actions: Bed status management (available/maintenance)
@@ -365,6 +443,158 @@ export default function AdminDashboard() {
     setShowTherapistModal(true);
   };
 
+  const handleAddBedSubmit = async (e) => {
+    e.preventDefault();
+    if (!newBedNumber.trim()) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('beds')
+        .insert([{ bed_number: newBedNumber.trim(), status: 'available' }]);
+      if (error) throw error;
+      showToast('success', `Bed ${newBedNumber} registered successfully.`);
+      setNewBedNumber('');
+      setShowAddBedModal(false);
+      loadData();
+    } catch (err) {
+      console.error(err);
+      const newBed = {
+        id: 'temp_bed_' + Date.now(),
+        bed_number: newBedNumber.trim(),
+        status: 'available'
+      };
+      setBeds([...beds, newBed]);
+      showToast('success', `Local simulation: Registered bed ${newBedNumber}.`);
+      setNewBedNumber('');
+      setShowAddBedModal(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteBed = async (bed) => {
+    if (!window.confirm(`WARNING: Deleting ${bed.bed_number} will cancel all appointments scheduled for this bed. Are you sure you want to remove it?`)) return;
+    try {
+      const { error } = await supabase
+        .from('beds')
+        .delete()
+        .eq('id', bed.id);
+      if (error) throw error;
+      showToast('success', `Bed ${bed.bed_number} removed successfully.`);
+      loadData();
+    } catch (err) {
+      console.error(err);
+      setBeds(beds.filter(b => b.id !== bed.id));
+      showToast('success', `Local simulation: Removed bed ${bed.bed_number}.`);
+    }
+  };
+
+  const handleDeleteTherapist = async (therapist) => {
+    if (!window.confirm(`WARNING: Deleting ${therapist.name} will cancel all appointments scheduled with them. Are you sure you want to remove them?`)) return;
+    try {
+      const { error } = await supabase
+        .from('therapists')
+        .delete()
+        .eq('id', therapist.id);
+      if (error) throw error;
+      showToast('success', `Therapist ${therapist.name} removed successfully.`);
+      loadData();
+    } catch (err) {
+      console.error(err);
+      setTherapists(therapists.filter(t => t.id !== therapist.id));
+      showToast('success', `Local simulation: Removed therapist ${therapist.name}.`);
+    }
+  };
+
+  useEffect(() => {
+    setSettingsForm({
+      start: clinicHours.start,
+      end: clinicHours.end
+    });
+  }, [clinicHours]);
+
+  const handleSettingsSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const { error: startErr } = await supabase
+        .from('clinic_settings')
+        .upsert({ key: 'clinic_start_time', value: settingsForm.start });
+      if (startErr) throw startErr;
+      
+      const { error: endErr } = await supabase
+        .from('clinic_settings')
+        .upsert({ key: 'clinic_end_time', value: settingsForm.end });
+      if (endErr) throw endErr;
+      
+      showToast('success', 'Operating hours updated successfully.');
+      setClinicHours({
+        start: settingsForm.start,
+        end: settingsForm.end
+      });
+      loadData();
+    } catch (err) {
+      console.error(err);
+      setClinicHours({
+        start: settingsForm.start,
+        end: settingsForm.end
+      });
+      showToast('success', 'Local simulation: Operating hours updated.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const generateSlots = (startStr, endStr) => {
+    const slots = [];
+    if (!startStr || !endStr) return slots;
+    
+    const startHour = parseInt(startStr.split(':')[0], 10);
+    const endHour = parseInt(endStr.split(':')[0], 10);
+    
+    for (let h = startHour; h < endHour; h++) {
+      const currentHourStr = h.toString().padStart(2, '0') + ':00:00';
+      const nextHourStr = (h + 1).toString().padStart(2, '0') + ':00:00';
+      slots.push({
+        value: currentHourStr,
+        label: `${formatTime(currentHourStr)} - ${formatTime(nextHourStr)}`
+      });
+    }
+    return slots;
+  };
+
+  const adminMonthNames = [
+    "January", "February", "March", "April", "May", "June", 
+    "July", "August", "September", "October", "November", "December"
+  ];
+  
+  const getAdminDaysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
+  const getAdminFirstDayOfMonth = (y, m) => new Date(y, m, 1).getDay();
+
+  const handleAdminPrevMonth = () => {
+    if (adminMonth === 0) {
+      setAdminMonth(11);
+      setAdminYear(adminYear - 1);
+    } else {
+      setAdminMonth(adminMonth - 1);
+    }
+  };
+
+  const handleAdminNextMonth = () => {
+    if (adminMonth === 11) {
+      setAdminMonth(0);
+      setAdminYear(adminYear + 1);
+    } else {
+      setAdminMonth(adminMonth + 1);
+    }
+  };
+
+  const adminDaysInMonth = getAdminDaysInMonth(adminYear, adminMonth);
+  const adminFirstDay = getAdminFirstDayOfMonth(adminYear, adminMonth);
+  const adminBlanks = Array(adminFirstDay).fill(null);
+  const adminDays = Array.from({ length: adminDaysInMonth }, (_, i) => i + 1);
+  const adminCalendarCells = [...adminBlanks, ...adminDays];
+
   const formatTime = (timeStr) => {
     if (!timeStr) return '';
     const [hours, minutes] = timeStr.split(':');
@@ -465,9 +695,11 @@ export default function AdminDashboard() {
           {[
             { id: 'overview', label: 'Analytics Overview', icon: BarChart2 },
             { id: 'calendar', label: 'Appointments Calendar', icon: CalendarDays },
+            { id: 'attendance', label: 'Doctor Attendance', icon: UserCheck },
             { id: 'beds', label: 'Beds Management', icon: Bed },
             { id: 'therapists', label: 'Therapist Registry', icon: UserSquare },
-            { id: 'patients', label: 'Patient Directory', icon: Users }
+            { id: 'patients', label: 'Patient Directory', icon: Users },
+            { id: 'settings', label: 'Clinic Settings', icon: Settings }
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -577,188 +809,433 @@ export default function AdminDashboard() {
 
         {/* -------------------- TAB CONTENT: APPOINTMENTS CALENDAR -------------------- */}
         {activeTab === 'calendar' && (
-          <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-slide-up">
             
-            {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 p-5 rounded-3xl grid sm:grid-cols-3 gap-4 transition-colors">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Date</label>
+            {/* LEFT COLUMN: MINI CALENDAR & FILTERS (4 cols) */}
+            <div className="lg:col-span-4 space-y-6">
+              
+              {/* Mini Calendar Picker */}
+              <div className="bg-white border border-slate-200/60 p-5 rounded-3xl space-y-4 shadow-sm">
+                <div className="flex justify-between items-center">
+                  <span className="font-extrabold text-sm text-slate-800">
+                    {adminMonthNames[adminMonth]} {adminYear}
+                  </span>
+                  <div className="flex gap-2">
+                    <button 
+                      type="button"
+                      onClick={handleAdminPrevMonth}
+                      className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={handleAdminNextMonth}
+                      className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-7 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <span>Sun</span>
+                  <span>Mon</span>
+                  <span>Tue</span>
+                  <span>Wed</span>
+                  <span>Thu</span>
+                  <span>Fri</span>
+                  <span>Sat</span>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1">
+                  {adminCalendarCells.map((day, idx) => {
+                    if (day === null) {
+                      return <div key={`blank-${idx}`} className="h-8"></div>;
+                    }
+
+                    const dateStr = `${adminYear}-${(adminMonth + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+                    const isSelected = calendarDate === dateStr;
+
+                    return (
+                      <button
+                        key={`day-${day}`}
+                        type="button"
+                        onClick={() => setCalendarDate(dateStr)}
+                        className={`h-8 w-full rounded-xl flex items-center justify-center text-xs font-bold transition-all ${
+                          isSelected
+                            ? 'bg-medical-500 text-white shadow-md shadow-medical-500/20 scale-105'
+                            : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/40'
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div className="bg-white border border-slate-200/60 p-5 rounded-3xl space-y-4 shadow-sm">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Filter Schedule</h4>
+                
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Doctor</label>
+                  <select
+                    value={therapistFilter}
+                    onChange={(e) => setTherapistFilter(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-semibold focus:outline-none text-slate-700"
+                  >
+                    <option value="all">All Doctors</option>
+                    {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Patient</label>
+                  <select
+                    value={patientFilter}
+                    onChange={(e) => setPatientFilter(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-semibold focus:outline-none text-slate-700"
+                  >
+                    <option value="all">All Patients</option>
+                    {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setCalendarDate(new Date().toISOString().split('T')[0]);
+                    setAdminYear(new Date().getFullYear());
+                    setAdminMonth(new Date().getMonth());
+                  }}
+                  className="w-full text-center py-2.5 rounded-xl border border-slate-205 hover:bg-slate-50 text-xs font-bold text-slate-600 transition-colors"
+                >
+                  Reset to Today
+                </button>
+              </div>
+
+            </div>
+
+            {/* RIGHT COLUMN: DAILY SCHEDULER TIMELINE GRID (8 cols) */}
+            <div className="lg:col-span-8 bg-white border border-slate-200/60 rounded-3xl shadow-sm overflow-hidden transition-colors">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-base">
+                    Daily Timeline Grid
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {new Date(calendarDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </p>
+                </div>
+                <span className="text-xs font-bold bg-medical-50 border border-medical-100 text-medical-600 px-3 py-1 rounded-full">
+                  {filteredCalendarBookings.length} Active Sessions
+                </span>
+              </div>
+
+              {/* TIMELINE SCHEDULER */}
+              <div className="overflow-x-auto">
+                <div className="min-w-[650px]">
+                  
+                  {/* Grid Header */}
+                  <div className="grid grid-cols-12 border-b border-slate-100 bg-slate-50/30 text-center py-3 text-[10px] font-bold uppercase text-slate-400">
+                    <div className="col-span-2 border-r border-slate-100">Time</div>
+                    {/* Map therapists according to filter */}
+                    {therapists
+                      .filter(t => therapistFilter === 'all' || t.id === therapistFilter)
+                      .map((therapist, index, arr) => {
+                        const colWidth = 10 / arr.length;
+                        return (
+                          <div 
+                            key={therapist.id} 
+                            style={{ gridColumn: `span ${colWidth}` }}
+                            className="text-slate-700 font-extrabold"
+                          >
+                            {therapist.name}
+                          </div>
+                        );
+                      })}
+                  </div>
+
+                  {/* Grid Rows */}
+                  <div className="divide-y divide-slate-100">
+                    {generateSlots(clinicHours.start, clinicHours.end).map((slot) => {
+                      const activeTherapists = therapists.filter(t => therapistFilter === 'all' || t.id === therapistFilter);
+                      const colWidth = 10 / activeTherapists.length;
+
+                      return (
+                        <div key={slot.value} className="grid grid-cols-12 items-stretch min-h-24">
+                          {/* Time label */}
+                          <div className="col-span-2 flex flex-col justify-center items-center border-r border-slate-100 bg-slate-50/20 text-center px-2 py-4">
+                            <span className="text-[11px] font-black text-slate-700">{formatTime(slot.value).split(' ')[0]}</span>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase">{formatTime(slot.value).split(' ')[1]}</span>
+                          </div>
+
+                          {/* Columns per Therapist */}
+                          {activeTherapists.map((therapist) => {
+                            // Find booking in this slot for this therapist
+                            const booking = filteredCalendarBookings.find(b => 
+                              b.therapist?.id === therapist.id &&
+                              b.start_time.split(':')[0] === slot.value.split(':')[0]
+                            );
+
+                            // Check if doctor is on shift for this slot
+                            const isDoctorOnShift = therapist.shift_start <= slot.value && therapist.shift_end > slot.value;
+
+                            return (
+                              <div 
+                                key={therapist.id} 
+                                style={{ gridColumn: `span ${colWidth}` }}
+                                className={`border-r border-slate-100 last:border-r-0 p-2 flex flex-col justify-between ${
+                                  !isDoctorOnShift ? 'bg-slate-50/40 opacity-70' : 'bg-white hover:bg-slate-50/30'
+                                }`}
+                              >
+                                {booking ? (
+                                  <div className="rounded-2xl border border-slate-200/85 bg-white p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full space-y-2">
+                                    <div className="space-y-0.5">
+                                      <div className="font-extrabold text-[11px] text-slate-800 leading-tight">
+                                        {booking.patient?.name || 'Walk-in'}
+                                      </div>
+                                      <div className="text-[10px] text-slate-400 font-medium">
+                                        Bed {booking.bed?.bed_number.split(' ')[1] || booking.bed?.bed_number}
+                                      </div>
+                                    </div>
+                                    <div className="flex justify-between items-center gap-1 pt-1 border-t border-slate-100">
+                                      <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                        booking.status === 'completed'
+                                          ? 'bg-green-50 text-green-600'
+                                          : booking.status === 'cancelled'
+                                            ? 'bg-red-50 text-red-500'
+                                            : 'bg-medical-50 text-medical-600'
+                                      }`}>
+                                        {booking.status}
+                                      </span>
+                                      
+                                      {booking.status === 'booked' && (
+                                        <div className="flex gap-1.5">
+                                          <button 
+                                            onClick={() => handleCompleteBooking(booking.id)}
+                                            className="text-[9px] font-black text-green-600 hover:underline"
+                                            title="Mark Completed"
+                                          >
+                                            Done
+                                          </button>
+                                          <button 
+                                            onClick={() => handleOpenReschedule(booking)}
+                                            className="text-[9px] font-black text-medical-500 hover:underline"
+                                            title="Reschedule"
+                                          >
+                                            Shift
+                                          </button>
+                                          <button 
+                                            onClick={() => handleCancelBooking(booking.id)}
+                                            className="text-[9px] font-black text-red-400 hover:underline"
+                                            title="Cancel"
+                                          >
+                                            X
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : !isDoctorOnShift ? (
+                                  <div className="flex items-center justify-center h-full text-[9px] font-bold text-slate-400 tracking-wider">
+                                    OFF SHIFT
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-center h-full border border-dashed border-slate-100 hover:border-slate-200 rounded-2xl transition-colors min-h-[60px] group cursor-pointer">
+                                    <span className="text-[11px] font-bold text-slate-350 group-hover:text-slate-400 group-hover:scale-110 transition-all">+</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+        {/* -------------------- TAB CONTENT: DOCTOR ATTENDANCE -------------------- */}
+        {activeTab === 'attendance' && (
+          <div className="space-y-6 animate-slide-up">
+            
+            {/* Header / Date Selector */}
+            <div className="bg-white border border-slate-200/60 p-6 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm">
+              <div>
+                <h3 className="font-extrabold text-slate-800 text-base">Doctor Attendance Logging</h3>
+                <p className="text-xs text-slate-400">Mark daily attendance to dynamically adjust clinic booking capacities.</p>
+              </div>
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Log Date:</span>
                 <input 
-                  type="date" 
-                  value={calendarDate}
-                  onChange={(e) => setCalendarDate(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3 text-sm focus:outline-none dark:text-white"
+                  type="date"
+                  value={attendanceDate}
+                  onChange={(e) => setAttendanceDate(e.target.value)}
+                  className="w-full sm:w-auto rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-semibold focus:outline-none text-slate-700"
                 />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Filter by Therapist</label>
-                <select
-                  value={therapistFilter}
-                  onChange={(e) => setTherapistFilter(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3 text-sm focus:outline-none dark:text-white"
-                >
-                  <option value="all">All Therapists</option>
-                  {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Filter by Patient</label>
-                <select
-                  value={patientFilter}
-                  onChange={(e) => setPatientFilter(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3 text-sm focus:outline-none dark:text-white"
-                >
-                  <option value="all">All Patients</option>
-                  {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
               </div>
             </div>
 
-            {/* Calendar Table Grid */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 rounded-3xl overflow-hidden transition-colors">
-              <div className="p-6 border-b border-slate-100 dark:border-slate-800/50 flex justify-between items-center">
-                <h3 className="font-bold text-slate-900 dark:text-white">Scheduled Sessions ({filteredCalendarBookings.length})</h3>
-                <span className="text-xs font-semibold text-slate-400">{calendarDate}</span>
+            {/* Attendance Roster */}
+            <div className="bg-white border border-slate-200/60 rounded-3xl shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <h4 className="font-bold text-slate-800 text-sm">Attendance Roster</h4>
+                <span className="text-xs font-bold bg-slate-100 text-slate-500 px-3 py-1 rounded-full">
+                  {therapists.length} Doctors Registered
+                </span>
               </div>
 
-              {filteredCalendarBookings.length === 0 ? (
-                <div className="text-center py-20 space-y-3">
-                  <Calendar className="h-8 w-8 text-slate-350 mx-auto" />
-                  <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm">No Appointments Scheduled</h4>
-                  <p className="text-xs text-slate-400 max-w-xs mx-auto">
-                    There are no bookings recorded matching the selected date or filter parameters.
-                  </p>
+              {loadingAttendance ? (
+                <div className="p-12 text-center text-slate-400 text-xs font-semibold">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-medical-500 border-t-transparent mx-auto mb-2"></div>
+                  Loading attendance records...
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-400 bg-slate-50/50 dark:bg-slate-950/20">
-                        <th className="p-4 pl-6">Patient</th>
-                        <th className="p-4">Time Slot</th>
-                        <th className="p-4">Therapist</th>
-                        <th className="p-4">Bed Number</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4 pr-6 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-sm text-slate-700 dark:text-slate-300">
-                      {filteredCalendarBookings.map((bk) => (
-                        <tr key={bk.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10">
-                          <td className="p-4 pl-6">
-                            <div className="font-bold text-slate-900 dark:text-white">{bk.patient?.name || 'Walk-in'}</div>
-                            <div className="text-xs text-slate-400">{bk.patient?.phone || 'No phone'}</div>
-                          </td>
-                          <td className="p-4 font-semibold text-slate-900 dark:text-white">
-                            {formatTime(bk.start_time)} - {formatTime(bk.end_time)}
-                          </td>
-                          <td className="p-4 font-semibold">
-                            {bk.therapist?.name}
-                          </td>
-                          <td className="p-4">
-                            <span className="font-medium bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg text-slate-700 dark:text-slate-300 text-xs">
-                              {bk.bed?.bed_number}
-                            </span>
-                          </td>
-                          <td className="p-4">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              bk.status === 'completed'
-                                ? 'bg-green-50 text-green-600 dark:bg-green-950/30 dark:text-green-400'
-                                : bk.status === 'cancelled'
-                                  ? 'bg-red-50 text-red-400 dark:bg-red-950/20 dark:text-red-400'
-                                  : 'bg-medical-50 text-medical-600 dark:bg-medical-950/30 dark:text-medical-400'
-                            }`}>
-                              {bk.status.toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="p-4 pr-6 text-right space-x-2">
-                            {bk.status === 'booked' && (
-                              <>
-                                <button 
-                                  onClick={() => handleCompleteBooking(bk.id)}
-                                  className="text-xs font-bold text-green-600 hover:underline"
-                                >
-                                  Complete
-                                </button>
-                                <button 
-                                  onClick={() => handleOpenReschedule(bk)}
-                                  className="text-xs font-bold text-medical-500 hover:underline"
-                                >
-                                  Reschedule
-                                </button>
-                                <button 
-                                  onClick={() => handleCancelBooking(bk.id)}
-                                  className="text-xs font-bold text-red-500 hover:underline"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="divide-y divide-slate-100">
+                  {therapists.map((therapist) => {
+                    const record = attendanceRecords.find(r => r.therapist_id === therapist.id);
+                    const currentStatus = record ? record.status : 'present'; // default to present if not logged
+
+                    return (
+                      <div key={therapist.id} className="p-6 hover:bg-slate-50/30 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        
+                        {/* Doctor Profile Info */}
+                        <div className="flex gap-4 items-center">
+                          <img 
+                            src={therapist.profile_image || 'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=150'} 
+                            alt={therapist.name} 
+                            className="h-12 w-12 rounded-2xl object-cover border border-slate-100 shadow-xs"
+                          />
+                          <div>
+                            <h4 className="font-extrabold text-slate-800 text-sm">{therapist.name}</h4>
+                            <p className="text-xs text-slate-400 font-semibold">{therapist.specialization}</p>
+                          </div>
+                        </div>
+
+                        {/* Shift Hours */}
+                        <div className="text-xs font-semibold text-slate-450">
+                          Shift: {formatTime(therapist.shift_start)} - {formatTime(therapist.shift_end)}
+                        </div>
+
+                        {/* Status Toggle Buttons */}
+                        <div className="flex gap-2 p-1 bg-slate-50 border border-slate-200/50 rounded-2xl">
+                          {[
+                            { id: 'present', label: 'Present', activeClass: 'bg-green-500 text-white shadow-sm' },
+                            { id: 'absent', label: 'Absent', activeClass: 'bg-red-500 text-white shadow-sm' },
+                            { id: 'on_leave', label: 'On Leave', activeClass: 'bg-amber-500 text-white shadow-sm' }
+                          ].map((btn) => {
+                            const isActive = currentStatus === btn.id;
+                            return (
+                              <button
+                                key={btn.id}
+                                type="button"
+                                onClick={() => handleMarkAttendance(therapist.id, btn.id)}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                                  isActive
+                                    ? btn.activeClass
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                {btn.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
+
           </div>
         )}
 
         {/* -------------------- TAB CONTENT: BEDS MANAGEMENT -------------------- */}
         {activeTab === 'beds' && (
-          <div className="grid md:grid-cols-3 gap-6">
-            {beds.map((bed) => {
-              const isMaintenance = bed.status === 'maintenance';
-              const isOccupied = bed.status === 'occupied';
-              return (
-                <div 
-                  key={bed.id}
-                  className={`rounded-3xl border p-6 flex flex-col justify-between h-44 bg-white dark:bg-slate-900 transition-all ${
-                    isMaintenance 
-                      ? 'border-red-200/50 hover:border-red-300 dark:border-red-950/50' 
-                      : isOccupied 
-                        ? 'border-medical-200/50 hover:border-medical-300 dark:border-medical-950/50'
-                        : 'border-slate-200/60 hover:border-slate-350 dark:border-slate-800'
-                  }`}
-                >
-                  <div className="flex justify-between items-start">
-                    <div className="space-y-1">
-                      <div className="text-xs font-semibold text-slate-400">Clinic Asset</div>
-                      <h4 className="text-lg font-bold text-slate-800 dark:text-white">{bed.bed_number}</h4>
-                    </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      isMaintenance 
-                        ? 'bg-red-50 text-red-500 dark:bg-red-950/30'
-                        : isOccupied
-                          ? 'bg-medical-50 text-medical-500 dark:bg-medical-950/30'
-                          : 'bg-green-50 text-green-500 dark:bg-green-950/30'
-                    }`}>
-                      {bed.status.toUpperCase()}
-                    </span>
-                  </div>
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 dark:text-white text-lg">Clinic Beds Inventory</h3>
+              <button 
+                onClick={() => setShowAddBedModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-medical-500 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-medical-500/20 hover:bg-medical-600"
+              >
+                <Plus className="h-4 w-4" />
+                Add Bed Asset
+              </button>
+            </div>
 
-                  <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800/40">
-                    <span className="text-xs text-slate-400 font-medium">
-                      {isMaintenance ? 'Under Maintenance' : isOccupied ? 'Patient In Session' : 'Ready For Assignment'}
-                    </span>
-                    <button
-                      onClick={() => handleToggleBedStatus(bed.id, bed.status)}
-                      disabled={isOccupied}
-                      className={`text-xs font-bold transition-colors ${
-                        isMaintenance 
-                          ? 'text-green-600 hover:text-green-700' 
-                          : 'text-red-500 hover:text-red-600 disabled:opacity-50'
-                      }`}
-                    >
-                      {isMaintenance ? 'Make Available' : 'Block Bed'}
-                    </button>
+            <div className="grid md:grid-cols-3 gap-6">
+              {beds.map((bed) => {
+                const isMaintenance = bed.status === 'maintenance';
+                const isOccupied = bed.status === 'occupied';
+                return (
+                  <div 
+                    key={bed.id}
+                    className={`rounded-3xl border p-6 flex flex-col justify-between h-44 bg-white dark:bg-slate-900 transition-all ${
+                      isMaintenance 
+                        ? 'border-red-200/50 hover:border-red-300 dark:border-red-950/50' 
+                        : isOccupied 
+                          ? 'border-medical-200/50 hover:border-medical-300 dark:border-medical-950/50'
+                          : 'border-slate-200/60 hover:border-slate-350 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold text-slate-400">Clinic Asset</div>
+                        <h4 className="text-lg font-bold text-slate-800 dark:text-white">{bed.bed_number}</h4>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          isMaintenance 
+                            ? 'bg-red-50 text-red-500 dark:bg-red-950/30'
+                            : isOccupied
+                              ? 'bg-medical-50 text-medical-500 dark:bg-medical-950/30'
+                              : 'bg-green-50 text-green-500 dark:bg-green-950/30'
+                        }`}>
+                          {bed.status.toUpperCase()}
+                        </span>
+                        {!isOccupied && (
+                          <button
+                            onClick={() => handleDeleteBed(bed)}
+                            className="p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            title="Delete Bed"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800/40">
+                      <span className="text-xs text-slate-400 font-medium">
+                        {isMaintenance ? 'Under Maintenance' : isOccupied ? 'Patient In Session' : 'Ready For Assignment'}
+                      </span>
+                      <button
+                        onClick={() => handleToggleBedStatus(bed.id, bed.status)}
+                        disabled={isOccupied}
+                        className={`text-xs font-bold transition-colors ${
+                          isMaintenance 
+                            ? 'text-green-600 hover:text-green-700' 
+                            : 'text-red-500 hover:text-red-600 disabled:opacity-50'
+                        }`}
+                      >
+                        {isMaintenance ? 'Make Available' : 'Block Bed'}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -807,12 +1284,18 @@ export default function AdminDashboard() {
                       <td className="p-4 text-xs font-semibold">
                         {formatTime(t.shift_start)} - {formatTime(t.shift_end)}
                       </td>
-                      <td className="p-4 pr-6 text-right">
+                      <td className="p-4 pr-6 text-right space-x-3">
                         <button 
                           onClick={() => handleOpenEditTherapist(t)}
-                          className="text-xs font-bold text-medical-500 hover:underline mr-4"
+                          className="text-xs font-bold text-medical-500 hover:underline"
                         >
                           Edit Details
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteTherapist(t)}
+                          className="text-xs font-bold text-red-500 hover:underline"
+                        >
+                          Delete
                         </button>
                       </td>
                     </tr>
@@ -878,9 +1361,59 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* -------------------- TAB CONTENT: CLINIC SETTINGS -------------------- */}
+        {activeTab === 'settings' && (
+          <div className="max-w-xl mx-auto bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 rounded-3xl p-8 space-y-6 transition-colors shadow-md">
+            <div className="space-y-1">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Settings className="h-5 w-5 text-medical-500" />
+                Clinic Working Hours
+              </h3>
+              <p className="text-xs text-slate-400">
+                Configure the daily operating schedule. These settings dynamically update appointment booking slots.
+              </p>
+            </div>
+            
+            <form onSubmit={handleSettingsSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Clinic Open Time</label>
+                  <input 
+                    type="time" 
+                    required
+                    value={settingsForm.start}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, start: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 p-3 text-sm focus:border-medical-500 focus:outline-none dark:text-white"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Clinic Close Time</label>
+                  <input 
+                    type="time" 
+                    required
+                    value={settingsForm.end}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, end: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 p-3 text-sm focus:border-medical-500 focus:outline-none dark:text-white"
+                  />
+                </div>
+              </div>
+              
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-800/50 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-medical-500 px-6 py-3 text-xs font-bold text-white shadow-md shadow-medical-500/20 hover:bg-medical-600 disabled:opacity-75"
+                >
+                  {submitting ? 'Saving...' : 'Save Configuration'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {/* -------------------- RESCHEDULE APPOINTMENT MODAL -------------------- */}
         {showRescheduleModal && selectedBooking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-4">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-md p-6 space-y-6">
               
               <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800/50 pb-3">
@@ -910,21 +1443,16 @@ export default function AdminDashboard() {
                   />
                 </div>
 
-                <div className="space-y-1.5">
+                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400 uppercase">New Time Slot</label>
                   <select
                     value={rescheduleSlot}
                     onChange={(e) => setRescheduleSlot(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 p-3 text-sm focus:outline-none dark:text-white"
                   >
-                    <option value="09:00:00">09:00 AM - 10:00 AM</option>
-                    <option value="10:00:00">10:00 AM - 11:00 AM</option>
-                    <option value="11:00:00">11:00 AM - 12:00 PM</option>
-                    <option value="12:00:00">12:00 PM - 01:00 PM</option>
-                    <option value="13:00:00">01:00 PM - 02:00 PM</option>
-                    <option value="14:00:00">02:00 PM - 03:00 PM</option>
-                    <option value="15:00:00">03:00 PM - 04:00 PM</option>
-                    <option value="16:00:00">04:00 PM - 05:00 PM</option>
+                    {generateSlots(clinicHours.start, clinicHours.end).map(slot => (
+                      <option key={slot.value} value={slot.value}>{slot.label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -952,7 +1480,7 @@ export default function AdminDashboard() {
 
         {/* -------------------- THERAPIST REGISTRATION / EDIT MODAL -------------------- */}
         {showTherapistModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-4">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-md p-6 space-y-6">
               
               <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800/50 pb-3">
@@ -1048,6 +1576,51 @@ export default function AdminDashboard() {
                     className="inline-flex items-center gap-1.5 rounded-xl bg-medical-500 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-medical-500/20 hover:bg-medical-600"
                   >
                     {submitting ? 'Saving...' : 'Save Therapist'}
+                  </button>
+                </div>
+              </form>
+
+            </div>
+          </div>
+        )}
+
+        {/* -------------------- ADD BED MODAL -------------------- */}
+        {showAddBedModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-md p-6 space-y-6">
+              
+              <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800/50 pb-3">
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">Add New Bed Asset</h3>
+                <button onClick={() => setShowAddBedModal(false)} className="text-slate-400 hover:text-slate-600"><XCircle className="h-5 w-5" /></button>
+              </div>
+
+              <form onSubmit={handleAddBedSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 uppercase">Bed Number / Code</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={newBedNumber}
+                    onChange={(e) => setNewBedNumber(e.target.value)}
+                    placeholder="Bed D-3"
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 p-3 text-sm focus:outline-none dark:text-white"
+                  />
+                </div>
+
+                <div className="pt-4 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-805">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowAddBedModal(false)}
+                    className="text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-250 py-2.5 px-4"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-medical-500 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-medical-500/20 hover:bg-medical-600"
+                  >
+                    {submitting ? 'Registering...' : 'Add Bed'}
                   </button>
                 </div>
               </form>

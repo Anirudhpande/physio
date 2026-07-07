@@ -47,6 +47,8 @@ export default function Login() {
       
       if (role === 'admin') {
         navigate('/admin');
+      } else if (role === 'therapist') {
+        navigate('/doctor');
       } else {
         navigate('/dashboard');
       }

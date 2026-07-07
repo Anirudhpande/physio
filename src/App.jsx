@@ -10,6 +10,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import PatientDashboard from './pages/PatientDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import DoctorDashboard from './pages/DoctorDashboard';
 import NotFound from './pages/NotFound';
 
 import './App.css';
@@ -51,6 +52,16 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <AdminDashboard />
+                </ProtectedRoute>
+              } 
+            />
+
+            {/* Doctor Secured Routes */}
+            <Route 
+              path="/doctor" 
+              element={
+                <ProtectedRoute allowedRoles={['therapist']}>
+                  <DoctorDashboard />
                 </ProtectedRoute>
               } 
             />
