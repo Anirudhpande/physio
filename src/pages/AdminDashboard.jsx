@@ -53,6 +53,9 @@ export default function AdminDashboard() {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleSlot, setRescheduleSlot] = useState('09:00:00');
+  
+  // Bulk booking cancellation state for admin
+  const [adminCancellingBooking, setAdminCancellingBooking] = useState(null);
 
   const [showTherapistModal, setShowTherapistModal] = useState(false);
   const [editingTherapist, setEditingTherapist] = useState(null); // null = new
@@ -88,7 +91,7 @@ export default function AdminDashboard() {
       const { data: bkData, error: bkErr } = await supabase
         .from('bookings')
         .select(`
-          id, booking_date, start_time, end_time, status, created_at,
+          id, booking_date, start_time, end_time, status, created_at, bulk_booking_id,
           patient:patient_id(id, name, email, phone),
           therapist:therapist_id(id, name, specialization),
           bed:bed_id(id, bed_number)
@@ -288,20 +291,56 @@ export default function AdminDashboard() {
   };
 
   // 2. Actions: Cancel appointment
-  const handleCancelBooking = async (bookingId) => {
-    if (!window.confirm('Are you sure you want to cancel this booking?')) return;
+  const handleCancelBooking = (booking) => {
+    setAdminCancellingBooking(booking);
+  };
+
+  const executeAdminCancellation = async (mode) => {
+    if (!adminCancellingBooking) return;
     try {
-      const { error } = await supabase
-        .from('bookings')
-        .update({ status: 'cancelled' })
-        .eq('id', bookingId);
-      if (error) throw error;
-      showToast('success', 'Appointment successfully cancelled.');
+      if (mode === 'single') {
+        const { error } = await supabase
+          .from('bookings')
+          .update({ status: 'cancelled' })
+          .eq('id', adminCancellingBooking.id);
+        if (error) throw error;
+        showToast('success', 'Appointment successfully cancelled.');
+      } else if (mode === 'remaining') {
+        const packageBookings = bookings
+          .filter(b => b.bulk_booking_id === adminCancellingBooking.bulk_booking_id && b.status === 'booked')
+          .filter(b => b.booking_date >= adminCancellingBooking.booking_date);
+        
+        const { error } = await supabase
+          .from('bookings')
+          .update({ status: 'cancelled' })
+          .in('id', packageBookings.map(b => b.id));
+        if (error) throw error;
+        showToast('success', `Cancelled ${packageBookings.length} future appointments in this package.`);
+      } else if (mode === 'all') {
+        const packageBookings = bookings
+          .filter(b => b.bulk_booking_id === adminCancellingBooking.bulk_booking_id && b.status === 'booked');
+        
+        const { error } = await supabase
+          .from('bookings')
+          .update({ status: 'cancelled' })
+          .in('id', packageBookings.map(b => b.id));
+        if (error) throw error;
+        showToast('success', `Cancelled all ${packageBookings.length} active sessions in this package.`);
+      }
+      setAdminCancellingBooking(null);
       loadData();
     } catch (err) {
       console.error(err);
-      setBookings(bookings.map(b => b.id === bookingId ? { ...b, status: 'cancelled' } : b));
-      showToast('success', 'Local simulation: Booking marked cancelled.');
+      // Simulated update
+      if (mode === 'single') {
+        setBookings(bookings.map(b => b.id === adminCancellingBooking.id ? { ...b, status: 'cancelled' } : b));
+      } else {
+        const packageBookings = bookings
+          .filter(b => b.bulk_booking_id === adminCancellingBooking.bulk_booking_id);
+        setBookings(bookings.map(b => packageBookings.some(pb => pb.id === b.id) ? { ...b, status: 'cancelled' } : b));
+      }
+      showToast('success', 'Local simulation: Cancellation completed.');
+      setAdminCancellingBooking(null);
     }
   };
 
@@ -993,8 +1032,11 @@ export default function AdminDashboard() {
                                 {booking ? (
                                   <div className="rounded-2xl border border-slate-200/85 bg-white p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full space-y-2">
                                     <div className="space-y-0.5">
-                                      <div className="font-extrabold text-[11px] text-slate-800 leading-tight">
-                                        {booking.patient?.name || 'Walk-in'}
+                                      <div className="font-extrabold text-[11px] text-slate-800 leading-tight flex items-center justify-between gap-1">
+                                        <span>{booking.patient?.name || 'Walk-in'}</span>
+                                        {booking.bulk_booking_id && (
+                                          <span className="text-[9px] text-blue-500 font-black cursor-help" title="Part of a Bulk Recovery Package">📦</span>
+                                        )}
                                       </div>
                                       <div className="text-[10px] text-slate-400 font-medium">
                                         Bed {booking.bed?.bed_number.split(' ')[1] || booking.bed?.bed_number}
@@ -1028,12 +1070,12 @@ export default function AdminDashboard() {
                                             Shift
                                           </button>
                                           <button 
-                                            onClick={() => handleCancelBooking(booking.id)}
-                                            className="text-[9px] font-black text-red-400 hover:underline"
-                                            title="Cancel"
-                                          >
-                                            X
-                                          </button>
+                                             onClick={() => handleCancelBooking(booking)}
+                                             className="text-[9px] font-black text-red-400 hover:underline"
+                                             title="Cancel"
+                                           >
+                                             X
+                                           </button>
                                         </div>
                                       )}
                                     </div>
@@ -1408,6 +1450,78 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {/* -------------------- ADMIN CANCEL APPOINTMENT MODAL -------------------- */}
+        {adminCancellingBooking && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-md p-6 space-y-6">
+              
+              <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800/50 pb-3">
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">Cancel Appointment</h3>
+                <button onClick={() => setAdminCancellingBooking(null)} className="text-slate-400 hover:text-slate-600"><XCircle className="h-5 w-5" /></button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Are you sure you want to cancel the appointment for <span className="font-semibold text-slate-800 dark:text-slate-200">{adminCancellingBooking.patient?.name || 'Walk-in'}</span> on <span className="font-semibold text-slate-800 dark:text-slate-200">{adminCancellingBooking.booking_date}</span>?
+                </p>
+
+                {adminCancellingBooking.bulk_booking_id ? (
+                  <div className="space-y-3 p-4 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100/40 dark:border-blue-900/30 rounded-2xl">
+                    <p className="text-xs font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      Recovery Package Options
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      This appointment is part of a bulk recovery package. Select a cancellation option below:
+                    </p>
+                    
+                    <div className="flex flex-col gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => executeAdminCancellation('single')}
+                        className="w-full text-left text-xs font-bold text-slate-700 dark:text-slate-350 bg-white dark:bg-slate-800 hover:bg-slate-100/70 border border-slate-205 px-4 py-2.5 rounded-xl transition-all"
+                      >
+                        📅 Cancel only this session
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => executeAdminCancellation('remaining')}
+                        className="w-full text-left text-xs font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 hover:bg-red-100/80 border border-red-150 px-4 py-2.5 rounded-xl transition-all"
+                      >
+                        ⏳ Cancel this and all future sessions
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => executeAdminCancellation('all')}
+                        className="w-full text-left text-xs font-bold text-red-700 dark:text-red-350 bg-red-100/40 dark:bg-red-950/30 hover:bg-red-100/70 border border-red-200/40 px-4 py-2.5 rounded-xl transition-all"
+                      >
+                        📦 Cancel entire package (all active sessions)
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setAdminCancellingBooking(null)}
+                      className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors"
+                    >
+                      Keep Session
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => executeAdminCancellation('single')}
+                      className="bg-red-500 hover:bg-red-655 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-md transition-all"
+                    >
+                      Confirm Cancellation
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
