@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 import {
   LayoutDashboard, CalendarDays, Users, Stethoscope, BedDouble,
   BarChart3, Settings, LogOut, Plus, Search, ChevronLeft,
   ChevronRight, X, CheckCircle2, XCircle, Clock, AlertCircle,
-  Phone, Mail, Trash2, Edit3, Activity, HeartPulse,
-  Package, Check, Sun, Moon, Sparkles, CheckSquare, Calendar, Info
+  Phone, Mail, Trash2, Edit3, Activity,
+  Package, Check, Sun, Moon, Calendar, Loader2, ArrowRight
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -121,7 +120,7 @@ function Sidebar({ active, setActive, profile, onSignOut, theme, toggleTheme }) 
 }
 
 // ─── TODAY'S VIEW ─────────────────────────────────────────────────────────────
-function TodayView({ bookings, beds, therapists, onBookSlot, onCancelBooking, onCompleteBooking, showToast }) {
+function TodayView({ bookings, beds, onBookSlot, onCancelBooking, onCompleteBooking }) {
   const todayStr = today();
   const todayBookings = bookings.filter(b => b.booking_date === todayStr);
   const activeCount = todayBookings.filter(b => b.status === 'booked').length;
@@ -271,11 +270,12 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
 
   useEffect(() => {
     if (!date) return;
-    setLoadingSlots(true);
+    const timer = setTimeout(() => setLoadingSlots(true), 0);
     supabase.rpc('get_available_slots', { p_date: date })
       .then(({ data }) => setSlots(data || []))
       .catch(() => setSlots([]))
       .finally(() => setLoadingSlots(false));
+    return () => clearTimeout(timer);
   }, [date]);
 
   useEffect(() => {
@@ -298,7 +298,8 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
         cur.setDate(cur.getDate() + 1);
       }
     }
-    setBulkDates(dates);
+    const timer = setTimeout(() => setBulkDates(dates), 0);
+    return () => clearTimeout(timer);
   }, [mode, date, bulkCount, bulkFreq]);
 
   const canProceed = () => {
@@ -400,7 +401,7 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
       {/* Stepper Progress */}
       <div className="flex items-center gap-4 bg-white dark:bg-slate-900/60 p-4 border border-slate-200/50 dark:border-slate-850 rounded-2xl">
         {stepLabels.map((l, i) => (
-          <React.Fragment key={i}>
+          <Fragment key={i}>
             <div className={`flex items-center gap-2 text-xs font-bold transition-colors ${step > i+1 ? 'text-emerald-500' : step === i+1 ? 'text-medical-500' : 'text-slate-400'}`}>
               <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all ${step > i+1 ? 'bg-emerald-500 text-white' : step === i+1 ? 'bg-medical-500 text-white ring-4 ring-medical-500/10' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
                 {step > i+1 ? <Check className="h-3.5 w-3.5" /> : i+1}
@@ -408,7 +409,7 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
               <span className="hidden md:inline">{l}</span>
             </div>
             {i < stepLabels.length-1 && <div className={`flex-1 h-[2px] ${step > i+1 ? 'bg-emerald-500' : 'bg-slate-150 dark:bg-slate-800'}`} />}
-          </React.Fragment>
+          </Fragment>
         ))}
       </div>
 
@@ -1062,6 +1063,7 @@ function SettingsView({ showToast }) {
       await supabase.from('clinic_settings').upsert({ key: 'clinic_end_time', value: endTime });
       showToast('success', 'Operating hours successfully updated!');
     } catch (err) {
+      console.error(err);
       showToast('error', 'Failed to update operating settings.');
     } finally {
       setSaving(false);
@@ -1216,7 +1218,7 @@ function CancelModal({ booking, bookings, onClose, onDone, showToast }) {
         showToast('success', `Cancelled entire package (${ids.length} sessions).`);
       }
       onDone();
-    } catch (err) { showToast('error', 'Failed to cancel.'); }
+    } catch (err) { console.error(err); showToast('error', 'Failed to cancel.'); }
     finally { setCancelling(false); }
   };
 
@@ -1309,7 +1311,10 @@ export default function ReceptionistDashboard() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    const timer = setTimeout(() => { loadData(); }, 0);
+    return () => clearTimeout(timer);
+  }, [loadData]);
 
   const handleSignOut = async () => { await signOut(); window.location.href = '/login'; };
   const handleCompleteBooking = async (id) => {
