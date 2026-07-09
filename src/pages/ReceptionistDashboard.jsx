@@ -898,13 +898,14 @@ function TherapistsView({ therapists, onAdd, onEdit, onDelete }) {
 }
 
 // ─── BEDS VIEW ─────────────────────────────────────────────────────────────────
-function BedsView({ beds, onAdd, onToggle, onDelete }) {
+function BedsView({ beds, bookings, onAdd, onToggle, onDelete }) {
   const statusCfg = {
     available:   { color: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20', dot: 'bg-emerald-500 animate-pulse-glow' },
     occupied:    { color: 'bg-blue-500/10 text-blue-500 border border-blue-500/20', dot: 'bg-blue-500' },
     maintenance: { color: 'bg-rose-500/10 text-rose-500 border border-rose-500/20', dot: 'bg-rose-500' },
   };
   const statuses = ['available','occupied','maintenance'];
+  const todayStr = today();
 
   return (
     <div className="space-y-6 animate-scale-in">
@@ -918,9 +919,16 @@ function BedsView({ beds, onAdd, onToggle, onDelete }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {beds.map(bed => {
           const cfg = statusCfg[bed.status] || statusCfg.available;
+          // Find all bookings for this bed today
+          const bedBookingsToday = bookings.filter(b => 
+            (b.bed_id === bed.id || b.bed?.id === bed.id) && 
+            b.booking_date === todayStr && 
+            b.status === 'booked'
+          );
+
           return (
             <div key={bed.id} className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-3xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md transition-all duration-300">
               <div className="flex items-start justify-between">
@@ -936,6 +944,22 @@ function BedsView({ beds, onAdd, onToggle, onDelete }) {
                   <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                   {bed.status}
                 </span>
+              </div>
+
+              {/* Show Patient Assignments Today */}
+              <div className="space-y-1.5 py-1 border-t border-b border-slate-100 dark:border-slate-800/80 my-0.5">
+                <label className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Today's Schedule</label>
+                <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                  {bedBookingsToday.map(b => (
+                    <div key={b.id} className="text-[11px] text-slate-600 dark:text-slate-350 font-semibold flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40 p-1.5 rounded-xl border border-slate-100 dark:border-slate-850">
+                      <span className="font-mono text-[10px]">{fmt(b.start_time).split(' ')[0]}</span>
+                      <span className="truncate max-w-[80px]" title={b.patient?.name || b.walk_in_patient?.name}>{b.patient?.name || b.walk_in_patient?.name || 'Walk-in'}</span>
+                    </div>
+                  ))}
+                  {bedBookingsToday.length === 0 && (
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500 italic py-1">No bookings today</div>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-1.5">
