@@ -6,6 +6,7 @@ const AuthContext = createContext({});
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId) => {
@@ -15,7 +16,6 @@ export const AuthProvider = ({ children }) => {
         .select('*')
         .eq('id', userId)
         .single();
-
       if (error) throw error;
       setProfile(data);
     } catch (err) {
@@ -25,24 +25,22 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    // 1. Check current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setUser(session.user);
-        fetchProfile(session.user.id).finally(() => setLoading(false));
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      if (s) {
+        setUser(s.user);
+        fetchProfile(s.user.id).finally(() => setLoading(false));
       } else {
-        setUser(null);
-        setProfile(null);
         setLoading(false);
       }
     });
 
-    // 2. Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session) {
-          setUser(session.user);
-          await fetchProfile(session.user.id);
+      async (_event, s) => {
+        setSession(s);
+        if (s) {
+          setUser(s.user);
+          await fetchProfile(s.user.id);
         } else {
           setUser(null);
           setProfile(null);
@@ -50,31 +48,11 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
       }
     );
-
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email, password, name, phone, role = 'patient') => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          name,
-          phone,
-          role,
-        },
-      },
-    });
-    if (error) throw error;
-    return data;
-  };
-
   const signIn = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data;
   };
@@ -84,15 +62,20 @@ export const AuthProvider = ({ children }) => {
     if (error) throw error;
   };
 
+  // Token for calling the backend API
+  const getToken = () => session?.access_token || null;
+
+  const isReceptionist = profile?.role === 'receptionist' || profile?.role === 'admin';
+
   const value = {
     user,
     profile,
+    session,
     loading,
-    signUp,
     signIn,
     signOut,
-    isAdmin: profile?.role === 'admin',
-    isPatient: profile?.role === 'patient',
+    getToken,
+    isReceptionist,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

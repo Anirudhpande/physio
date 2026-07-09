@@ -2,28 +2,23 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
-import { ProtectedRoute } from './components/ProtectedRoute';
 
 // Pages
-import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
-import Register from './pages/Register';
-import PatientDashboard from './pages/PatientDashboard';
-import AdminDashboard from './pages/AdminDashboard';
-import DoctorDashboard from './pages/DoctorDashboard';
-import NotFound from './pages/NotFound';
+import ReceptionistDashboard from './pages/ReceptionistDashboard';
 
 import './App.css';
 
-// Initialize React Query client
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  },
+  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
 });
+
+// Simple protected route for receptionist
+function ProtectedRoute({ children }) {
+  const token = localStorage.getItem('sb-wdywzrjrlyuyfnyichzy-auth-token');
+  if (!token) return <Navigate to="/login" replace />;
+  return children;
+}
 
 export default function App() {
   return (
@@ -31,44 +26,16 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-            {/* Public Marketing Routes */}
-            <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-
-            {/* Patient Secured Routes */}
-            <Route 
-              path="/dashboard" 
+            <Route
+              path="/"
               element={
-                <ProtectedRoute allowedRoles={['patient']}>
-                  <PatientDashboard />
+                <ProtectedRoute>
+                  <ReceptionistDashboard />
                 </ProtectedRoute>
-              } 
+              }
             />
-
-            {/* Admin Secured Routes */}
-            <Route 
-              path="/admin" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              } 
-            />
-
-            {/* Doctor Secured Routes */}
-            <Route 
-              path="/doctor" 
-              element={
-                <ProtectedRoute allowedRoles={['therapist']}>
-                  <DoctorDashboard />
-                </ProtectedRoute>
-              } 
-            />
-
-            {/* Wildcard 404 Route */}
-            <Route path="/450" element={<NotFound />} />
-            <Route path="*" element={<NotFound />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>
