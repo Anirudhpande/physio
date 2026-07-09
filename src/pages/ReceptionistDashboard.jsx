@@ -422,7 +422,7 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
               <h3 className="font-extrabold text-slate-800 dark:text-white text-base">Who is the patient?</h3>
               <div className="flex gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl border border-slate-200/40 dark:border-slate-750">
                 {[['registered','Database Search'],['walkin','Quick Registration']].map(([m,l]) => (
-                  <button key={m} onClick={() => { setPatientMode(m); setSelectedPatient(null); }}
+                  <button type="button" key={m} onClick={() => { setPatientMode(m); setSelectedPatient(null); }}
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${patientMode===m ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
                     {l}
                   </button>
@@ -438,7 +438,7 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
                 </div>
                 <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
                   {filteredPatients.slice(0, 15).map(p => (
-                    <button key={p.id} onClick={() => setSelectedPatient(p)}
+                    <button type="button" key={p.id} onClick={() => setSelectedPatient(p)}
                       className={`w-full text-left px-5 py-3 rounded-2xl border text-sm transition-all flex items-center justify-between ${selectedPatient?.id === p.id ? 'border-medical-500 bg-medical-500/5 text-medical-600 dark:text-medical-455' : 'border-slate-100 dark:border-slate-850 hover:border-slate-200 dark:hover:border-slate-750 bg-slate-50/20 dark:bg-slate-950/20'}`}>
                       <div>
                         <div className="font-bold text-slate-850 dark:text-slate-200">{p.name}</div>
@@ -522,7 +522,7 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
                   {slots.map(s => {
                     const isSelected = slot === `${s.slot_start}|${s.slot_end}`;
                     return (
-                      <button key={s.slot_start}
+                      <button type="button" key={s.slot_start}
                         disabled={s.available_slots === 0}
                         onClick={() => setSlot(`${s.slot_start}|${s.slot_end}`)}
                         className={`py-3 px-4 rounded-2xl text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-1.5 ${
@@ -557,7 +557,7 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
               {therapists.map(t => {
                 const isSelected = therapist === t.id;
                 return (
-                  <button key={t.id} onClick={() => setTherapist(t.id)}
+                  <button type="button" key={t.id} onClick={() => setTherapist(t.id)}
                     className={`w-full text-left p-4 rounded-2xl border flex items-center gap-4 transition-all ${
                       isSelected 
                         ? 'border-medical-500 bg-medical-500/5 ring-4 ring-medical-500/5' 
@@ -631,12 +631,12 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
 
         {/* Footer Navigation */}
         <div className="flex justify-between mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
-          <button onClick={() => setStep(s => Math.max(1, s-1))} disabled={step === 1}
+          <button type="button" onClick={() => setStep(s => Math.max(1, s-1))} disabled={step === 1}
             className="flex items-center gap-1 text-sm font-bold text-slate-400 hover:text-slate-655 dark:hover:text-slate-300 disabled:opacity-30 transition-colors">
             <ChevronLeft className="h-4.5 w-4.5" /> Back
           </button>
           {step < 4 && (
-            <button onClick={() => setStep(s => s+1)} disabled={!canProceed()}
+            <button type="button" onClick={() => setStep(s => s+1)} disabled={!canProceed()}
               className="flex items-center gap-1 text-sm font-extrabold text-medical-500 hover:text-medical-600 disabled:opacity-35 transition-colors">
               Next Step <ChevronRight className="h-4.5 w-4.5" />
             </button>
@@ -1041,16 +1041,20 @@ function ReportsView({ bookings, beds, therapists }) {
 
 // ─── SETTINGS VIEW ─────────────────────────────────────────────────────────────
 function SettingsView({ showToast }) {
-  const [startTime, setStartTime] = useState('09:00:00');
-  const [endTime, setEndTime] = useState('17:00:00');
+  const [morningStart, setMorningStart] = useState('09:00:00');
+  const [morningEnd, setMorningEnd] = useState('14:00:00');
+  const [eveningStart, setEveningStart] = useState('16:00:00');
+  const [eveningEnd, setEveningEnd] = useState('20:00:00');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     supabase.from('clinic_settings').select('key,value').then(({ data }) => {
       if (!data) return;
       data.forEach(r => {
-        if (r.key === 'clinic_start_time') setStartTime(r.value);
-        if (r.key === 'clinic_end_time') setEndTime(r.value);
+        if (r.key === 'morning_start_time') setMorningStart(r.value);
+        if (r.key === 'morning_end_time') setMorningEnd(r.value);
+        if (r.key === 'evening_start_time') setEveningStart(r.value);
+        if (r.key === 'evening_end_time') setEveningEnd(r.value);
       });
     });
   }, []);
@@ -1059,9 +1063,11 @@ function SettingsView({ showToast }) {
     e.preventDefault();
     setSaving(true);
     try {
-      await supabase.from('clinic_settings').upsert({ key: 'clinic_start_time', value: startTime });
-      await supabase.from('clinic_settings').upsert({ key: 'clinic_end_time', value: endTime });
-      showToast('success', 'Operating hours successfully updated!');
+      await supabase.from('clinic_settings').upsert({ key: 'morning_start_time', value: morningStart });
+      await supabase.from('clinic_settings').upsert({ key: 'morning_end_time', value: morningEnd });
+      await supabase.from('clinic_settings').upsert({ key: 'evening_start_time', value: eveningStart });
+      await supabase.from('clinic_settings').upsert({ key: 'evening_end_time', value: eveningEnd });
+      showToast('success', 'Operating shifts successfully updated!');
     } catch (err) {
       console.error(err);
       showToast('error', 'Failed to update operating settings.');
@@ -1074,20 +1080,43 @@ function SettingsView({ showToast }) {
     <div className="space-y-6 max-w-xl animate-scale-in">
       <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Settings</h1>
       <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
-        <h2 className="font-extrabold text-slate-800 dark:text-white text-base mb-2">Clinic Operating Hours</h2>
-        <p className="text-xs text-slate-450 dark:text-slate-500 mb-5">Set clinic opening and closing boundaries for slot reservations.</p>
+        <h2 className="font-extrabold text-slate-800 dark:text-white text-base mb-2">Clinic Operating Shifts</h2>
+        <p className="text-xs text-slate-450 dark:text-slate-500 mb-5">Set morning and evening shifts boundaries for slot reservations.</p>
         
         <form onSubmit={save} className="space-y-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider">Opening Time</label>
-              <input type="time" value={startTime.slice(0,5)} onChange={e => setStartTime(e.target.value+':00')}
-                className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:border-medical-500" />
+          <div className="space-y-4">
+            {/* Morning Shift */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border border-slate-200/40 dark:border-slate-800 space-y-3">
+              <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300">☀️ Morning Shift</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider">Start Time</label>
+                  <input type="time" value={morningStart.slice(0,5)} onChange={e => setMorningStart(e.target.value+':00')}
+                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-850 rounded-2xl text-sm bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:border-medical-500" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 dark:text-slate-550 uppercase tracking-wider">End Time</label>
+                  <input type="time" value={morningEnd.slice(0,5)} onChange={e => setMorningEnd(e.target.value+':00')}
+                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-855 rounded-2xl text-sm bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:border-medical-500" />
+                </div>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider">Closing Time</label>
-              <input type="time" value={endTime.slice(0,5)} onChange={e => setEndTime(e.target.value+':00')}
-                className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:border-medical-500" />
+
+            {/* Evening Shift */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border border-slate-200/40 dark:border-slate-800 space-y-3">
+              <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300">🌙 Evening Shift</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider">Start Time</label>
+                  <input type="time" value={eveningStart.slice(0,5)} onChange={e => setEveningStart(e.target.value+':00')}
+                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-850 rounded-2xl text-sm bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:border-medical-500" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 dark:text-slate-550 uppercase tracking-wider">End Time</label>
+                  <input type="time" value={eveningEnd.slice(0,5)} onChange={e => setEveningEnd(e.target.value+':00')}
+                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-855 rounded-2xl text-sm bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:border-medical-500" />
+                </div>
+              </div>
             </div>
           </div>
           <button type="submit" disabled={saving}
