@@ -1533,128 +1533,118 @@ export default function ReceptionistDashboard() {
 // ─── BED OCCUPANCY VIEW ────────────────────────────────────────────────────────
 function BedOccupancyView({ bookings, beds }) {
   const [selectedDate, setSelectedDate] = useState(today());
-  const [slots, setSlots] = useState([]);
-  const [selectedSlot, setSelectedSlot] = useState('');
-
-  useEffect(() => {
-    if (!selectedDate) return;
-    supabase.rpc('get_available_slots', { p_date: selectedDate }).then(({ data }) => {
-      if (data && data.length > 0) {
-        setSlots(data);
-        const slotKeys = data.map(s => `${s.slot_start}|${s.slot_end}`);
-        if (!selectedSlot || !slotKeys.includes(selectedSlot)) {
-          setSelectedSlot(slotKeys[0]);
-        }
-      } else {
-        setSlots([]);
-      }
-    });
-  }, [selectedDate, selectedSlot]);
-
-  const [startFilter, endFilter] = selectedSlot ? selectedSlot.split('|') : ['', ''];
 
   return (
     <div className="space-y-6 animate-scale-in">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Bed Occupancy</h1>
-          <p className="text-sm text-slate-400 mt-1">Real-time bed allocation grid by date and time slot</p>
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Bed Occupancy Daily Schedule</h1>
+          <p className="text-sm text-slate-400 mt-1">Timeline of all patient bookings allocated to each bed</p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-bold text-slate-400 uppercase">Selected Date:</label>
           <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
             className="px-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs font-extrabold bg-white dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-850" />
-          
-          <select value={selectedSlot} onChange={e => setSelectedSlot(e.target.value)}
-            className="px-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs font-extrabold bg-white dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-850">
-            {slots.map(s => (
-              <option key={`${s.slot_start}|${s.slot_end}`} value={`${s.slot_start}|${s.slot_end}`}>
-                🕒 {fmt(s.slot_start)} - {fmt(s.slot_end)}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {beds.map(bed => {
-          const activeBooking = bookings.find(b => 
-            (b.bed_id === bed.id || b.bed?.id === bed.id) && 
-            b.booking_date === selectedDate && 
-            b.status === 'booked' && 
-            !(b.end_time <= startFilter || b.start_time >= endFilter)
-          );
+          // Find all bookings for this bed on the selected date
+          const dailyBookings = bookings
+            .filter(b => 
+              (b.bed_id === bed.id || b.bed?.id === bed.id) && 
+              b.booking_date === selectedDate && 
+              b.status === 'booked'
+            )
+            .sort((a, b) => a.start_time.localeCompare(b.start_time));
 
-          const isOccupied = !!activeBooking;
           const isMaintenance = bed.status === 'maintenance';
           
-          let cardBg = "bg-white dark:bg-slate-900 border-slate-200/50 dark:border-slate-800";
-          let statusBadge = (
-            <span className="inline-flex items-center gap-1.5 text-[9px] font-black px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 capitalize tracking-wide">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse-glow" /> Available
-            </span>
-          );
-
+          let cardBorder = "border-slate-200/60 dark:border-slate-800";
+          let headerBg = "bg-slate-50/50 dark:bg-slate-900/50";
+          
           if (isMaintenance) {
-            cardBg = "bg-rose-500/5 dark:bg-rose-950/10 border-rose-200/40 dark:border-rose-900/30";
-            statusBadge = (
-              <span className="inline-flex items-center gap-1.5 text-[9px] font-black px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 capitalize tracking-wide">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Maintenance
-              </span>
-            );
-          } else if (isOccupied) {
-            cardBg = "bg-blue-500/5 dark:bg-blue-950/10 border-blue-200/40 dark:border-blue-900/30";
-            statusBadge = (
-              <span className="inline-flex items-center gap-1.5 text-[9px] font-black px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20 capitalize tracking-wide">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" /> Occupied
-              </span>
-            );
+            cardBorder = "border-rose-200 dark:border-rose-900/40";
+            headerBg = "bg-rose-500/5 dark:bg-rose-950/10";
+          } else if (dailyBookings.length > 0) {
+            cardBorder = "border-blue-200 dark:border-blue-900/40";
+            headerBg = "bg-blue-500/5 dark:bg-blue-950/10";
           }
 
           return (
-            <div key={bed.id} className={`border rounded-3xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md transition-all duration-300 ${cardBg}`}>
-              <div className="flex items-center justify-between">
-                <div className="font-black text-sm text-slate-850 dark:text-slate-100">{bed.bed_number}</div>
-                {statusBadge}
+            <div key={bed.id} className={`border rounded-3xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-all duration-300 ${cardBorder}`}>
+              {/* Bed Header */}
+              <div className={`px-6 py-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 ${headerBg}`}>
+                <div className="flex items-center gap-2">
+                  <BedDouble className={`h-5 w-5 ${dailyBookings.length > 0 ? 'text-blue-500' : 'text-slate-400'}`} />
+                  <span className="font-extrabold text-slate-850 dark:text-slate-100">{bed.bed_number}</span>
+                </div>
+                {isMaintenance ? (
+                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 uppercase tracking-wider">Maintenance</span>
+                ) : dailyBookings.length > 0 ? (
+                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20 uppercase tracking-wider">
+                    {dailyBookings.length} {dailyBookings.length === 1 ? 'Booking' : 'Bookings'}
+                  </span>
+                ) : (
+                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 uppercase tracking-wider">Available</span>
+                )}
               </div>
 
-              {isOccupied ? (() => {
-                const patientName = activeBooking.patient?.name || activeBooking.walk_in_patient?.name || 'Walk-in';
-                const therapistName = activeBooking.therapist?.name || 'Unassigned';
-                const isBulk = !!activeBooking.bulk_booking_id;
-                
-                return (
-                  <div className="flex-1 flex flex-col justify-between gap-3 text-xs">
-                    <div className="space-y-2">
-                      <div className="p-3 bg-slate-50 dark:bg-slate-950/50 rounded-2xl border border-slate-100 dark:border-slate-850 space-y-1.5">
-                        <label className="text-[9px] font-black text-slate-400 dark:text-slate-550 uppercase tracking-widest">Occupant</label>
-                        <div className="font-extrabold text-slate-800 dark:text-slate-200 truncate">{patientName}</div>
-                        {activeBooking.patient?.phone && <div className="text-[10px] text-slate-400">{activeBooking.patient.phone}</div>}
-                      </div>
-
-                      <div className="p-3 bg-slate-50 dark:bg-slate-950/50 rounded-2xl border border-slate-100 dark:border-slate-850 space-y-1.5">
-                        <label className="text-[9px] font-black text-slate-400 dark:text-slate-550 uppercase tracking-widest">Practitioner</label>
-                        <div className="font-bold text-slate-800 dark:text-slate-200 truncate">👨‍⚕️ {therapistName}</div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                      <span className="text-[10px] text-slate-400 font-bold">Booking Type</span>
-                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border ${
-                        isBulk 
-                          ? 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' 
-                          : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                      }`}>
-                        {isBulk ? '📦 Bulk Session' : '📅 Single'}
-                      </span>
-                    </div>
+              {/* Bookings List */}
+              <div className="p-5 space-y-4">
+                {isMaintenance ? (
+                  <div className="text-center py-6 text-slate-400 italic text-xs">
+                    ⚠️ Bed is temporarily under maintenance.
                   </div>
-                );
-              })() : (
-                <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-350 dark:text-slate-655">
-                  <BedDouble className="h-8 w-8 mb-2 opacity-20" />
-                  <span className="text-[11px] font-bold italic">{isMaintenance ? 'Under Maintenance' : 'Bed is empty'}</span>
-                </div>
-              )}
+                ) : dailyBookings.length > 0 ? (
+                  <div className="space-y-3.5">
+                    {dailyBookings.map(bk => {
+                      const patientName = bk.patient?.name || bk.walk_in_patient?.name || 'Walk-in';
+                      const therapistName = bk.therapist?.name || 'Unassigned';
+                      const isBulk = !!bk.bulk_booking_id;
+                      
+                      return (
+                        <div key={bk.id} className="group relative p-3.5 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border border-slate-100 dark:border-slate-850 hover:border-blue-200 dark:hover:border-blue-900/30 transition-all">
+                          {/* Time & Session type */}
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-[11px] font-black text-slate-700 dark:text-slate-350 bg-slate-200/60 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg">
+                              🕒 {fmt(bk.start_time)} - {fmt(bk.end_time)}
+                            </span>
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
+                              isBulk 
+                                ? 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' 
+                                : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                            }`}>
+                              {isBulk ? 'Bulk' : 'Single'}
+                            </span>
+                          </div>
+
+                          {/* Patient and Practitioner details */}
+                          <div className="space-y-1 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400 font-semibold">Patient:</span>
+                              <span className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                {patientName}
+                                {bk.walk_in_patient_id && <span className="text-[8px] bg-amber-500/10 text-amber-500 font-black px-1.5 py-0.2 rounded-full border border-amber-500/20">W</span>}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400 font-semibold">Practitioner:</span>
+                              <span className="font-bold text-slate-655 dark:text-slate-350">👨‍⚕️ {therapistName}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 text-slate-350 dark:text-slate-600">
+                    <BedDouble className="h-8 w-8 mb-2 opacity-15" />
+                    <span className="text-xs font-extrabold text-emerald-500/80 bg-emerald-500/5 px-3 py-1 rounded-full border border-emerald-500/10">🟢 Available all day</span>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
