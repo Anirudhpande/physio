@@ -238,7 +238,7 @@ function TodayView({ bookings, beds, onBookSlot, onCancelBooking, onCompleteBook
 }
 
 // ─── BOOK APPOINTMENT ─────────────────────────────────────────────────────────
-function BookAppointment({ therapists, patients, onSuccess, showToast }) {
+function BookAppointment({ therapists, patients, bookings, beds, onSuccess, showToast }) {
   const [mode, setMode] = useState('single');
   const [step, setStep] = useState(1);
 
@@ -307,6 +307,38 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
     if (step === 2) return date && slot;
     if (step === 3) return therapist;
     return false;
+  };
+
+  const getBulkClashes = () => {
+    if (mode !== 'bulk' || !slot || !therapist) return [];
+    const [start_time, end_time] = slot.split('|');
+    const clashes = [];
+
+    bulkDates.forEach(d => {
+      // Check if therapist is booked
+      const therapistBooked = bookings.some(b => 
+        b.booking_date === d && 
+        (b.therapist_id === therapist || b.therapist?.id === therapist) && 
+        b.status === 'booked' && 
+        !(b.end_time <= start_time || b.start_time >= end_time)
+      );
+
+      // Check if no beds are available
+      const totalBeds = beds.filter(b => b.status === 'available').length;
+      const bookedBedsCount = bookings.filter(b => 
+        b.booking_date === d && 
+        b.status === 'booked' && 
+        !(b.end_time <= start_time || b.start_time >= end_time)
+      ).length;
+
+      if (therapistBooked) {
+        clashes.push({ date: d, reason: 'Therapist is already booked' });
+      } else if (bookedBedsCount >= totalBeds) {
+        clashes.push({ date: d, reason: 'No available beds' });
+      }
+    });
+
+    return clashes;
   };
 
   const handleSubmit = async () => {
@@ -618,7 +650,28 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
               </div>
             </div>
 
-            <button onClick={handleSubmit} disabled={submitting}
+            {/* Bulk Clash Warning */}
+            {mode === 'bulk' && (() => {
+              const clashes = getBulkClashes();
+              if (clashes.length > 0) {
+                return (
+                  <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl space-y-2 text-xs text-rose-500 animate-pulse-glow">
+                    <div className="font-black flex items-center gap-1.5 uppercase tracking-wider">
+                      <AlertCircle className="h-4.5 w-4.5" /> Scheduling Clashes Detected
+                    </div>
+                    <p className="text-[11px] text-rose-455">The bulk booking cannot be finalized because of conflicts on these dates:</p>
+                    <ul className="list-disc pl-4 space-y-1 font-semibold">
+                      {clashes.map((c, i) => (
+                        <li key={i}>{c.date}: {c.reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            <button onClick={handleSubmit} disabled={submitting || (mode === 'bulk' && getBulkClashes().length > 0)}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-medical-500 to-medical-600 hover:from-medical-600 hover:to-medical-700 text-white font-extrabold py-4 rounded-2xl shadow-lg shadow-medical-500/10 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 transition-all">
               {submitting ? (
                 <><Loader2 className="h-5 w-5 animate-spin" /> Finalizing Booking...</>
