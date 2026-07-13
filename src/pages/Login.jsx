@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../services/supabase';
 import { Activity, Mail, Lock, ArrowRight, Loader2, AlertCircle, HeartPulse } from 'lucide-react';
 
 export default function Login() {
@@ -12,16 +13,28 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const [isSignUp, setIsSignUp] = useState(false);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !password) { setError('Please enter your email and password.'); return; }
     setLoading(true);
     setError('');
     try {
+      if (isSignUp) {
+        const { error: signUpErr } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { name: email.split('@')[0] }
+          }
+        });
+        if (signUpErr) throw signUpErr;
+      }
       await signIn(email, password);
       navigate('/');
     } catch (err) {
-      setError(err.message || 'Invalid credentials. Please try again.');
+      setError(err.message || 'Authentication failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -57,8 +70,8 @@ export default function Login() {
 
         {/* Login Card */}
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
-          <h2 className="text-xl font-bold text-white mb-1">Welcome back</h2>
-          <p className="text-slate-400 text-sm mb-7">Sign in to access the clinic dashboard</p>
+          <h2 className="text-xl font-bold text-white mb-1">{isSignUp ? 'Register Staff Account' : 'Welcome back'}</h2>
+          <p className="text-slate-400 text-sm mb-7">{isSignUp ? 'Create a receptionist account with staff access' : 'Sign in to access the clinic dashboard'}</p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
@@ -104,12 +117,19 @@ export default function Login() {
               className="w-full mt-2 flex items-center justify-center gap-2 bg-medical-500 hover:bg-medical-600 disabled:opacity-60 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-medical-500/25 transition-all duration-200 active:scale-[0.98]"
             >
               {loading ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Signing in...</>
+                <><Loader2 className="h-4 w-4 animate-spin" /> {isSignUp ? 'Creating account...' : 'Signing in...'}</>
               ) : (
-                <><span>Sign In</span><ArrowRight className="h-4 w-4" /></>
+                <><span>{isSignUp ? 'Create Account' : 'Sign In'}</span><ArrowRight className="h-4 w-4" /></>
               )}
             </button>
           </form>
+
+          <div className="mt-6 text-center">
+            <button type="button" onClick={() => { setIsSignUp(!isSignUp); setError(''); }}
+              className="text-xs font-bold text-slate-400 hover:text-white transition-colors">
+              {isSignUp ? 'Already have an account? Sign In' : 'Need a receptionist account? Register Staff'}
+            </button>
+          </div>
         </div>
 
         <p className="text-center text-slate-600 text-xs mt-6">

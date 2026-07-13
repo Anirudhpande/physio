@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PhysioCare — Staff Registration Portal</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      background: radial-gradient(circle at 50% 50%, #030712 0%, #0b1528 100%);
+      color: #f3f4f6;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 2.5rem;
+      border-radius: 1.5rem;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      color: #ffffff;
+      text-align: center;
+    }
+    p {
+      color: #9ca3af;
+      font-size: 0.85rem;
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      margin-bottom: 0.5rem;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.75rem 1rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 0.75rem;
+      color: #ffffff;
+      font-size: 0.875rem;
+    }
+    input:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+    button {
+      width: 100%;
+      padding: 0.875rem;
+      background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 1rem;
+    }
+    button:hover {
+      opacity: 0.95;
+    }
+    .message {
+      margin-top: 1.25rem;
+      padding: 0.75rem;
+      border-radius: 0.75rem;
+      font-size: 0.825rem;
+      display: none;
+    }
+    .success {
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+    .error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #f87171;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Create Staff Account</h1>
+    <p>Register a new receptionist profile on your Supabase instance</p>
+
+    <div class="form-group">
+      <label>Email Address</label>
+      <input type="email" id="email" placeholder="staff@physiocare.com">
+    </div>
+
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="password" placeholder="••••••••">
+    </div>
+
+    <button onclick="register()">Register Account</button>
+
+    <div id="msg" class="message"></div>
+  </div>
+
+  <script>
+    const supabaseUrl = "https://plhvkdwspslqlgbspkml.supabase.co";
+    const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsaHZrZHdzcHNscWxnYnNwa21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1ODYzNDYsImV4cCI6MjA5OTE2MjM0Nn0.ie0K1Zy5CGWW0b4QgZRV2Ze6iRORHQdlk2ARawWV960";
+    const supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
+
+    async function register() {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      const msgDiv = document.getElementById("msg");
+
+      msgDiv.style.display = "none";
+
+      if (!email || !password) {
+        showMsg("Please enter both email and password.", true);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabaseClient.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { name: email.split('@')[0] }
+          }
+        });
+
+        if (error) throw error;
+
+        showMsg("Staff account created successfully! You can now log into your live dashboard using these credentials.", false);
+      } catch (err) {
+        showMsg(err.message, true);
+      }
+    }
+
+    function showMsg(text, isError) {
+      const msgDiv = document.getElementById("msg");
+      msgDiv.innerText = text;
+      msgDiv.className = "message " + (isError ? "error" : "success");
+      msgDiv.style.display = "block";
+    }
+  </script>
+</body>
+</html>

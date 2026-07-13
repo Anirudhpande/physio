@@ -324,13 +324,13 @@ function BookAppointment({ therapists, patients, onSuccess, showToast }) {
             .single();
           if (wErr) throw wErr;
           
-          await supabase.from('bookings').insert({
-            walk_in_patient_id: wPat.id,
-            therapist_id: therapist,
-            booking_date: date,
-            start_time,
-            end_time,
-            status: 'booked'
+          await supabase.rpc('book_appointment', {
+            p_patient_id: null,
+            p_therapist_id: therapist,
+            p_booking_date: date,
+            p_start_time: start_time,
+            p_end_time: end_time,
+            p_walk_in_patient_id: wPat.id
           });
         } else {
           await supabase.rpc('book_appointment', {
